@@ -1,0 +1,235 @@
+name: CICD development
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'branch to deploy'
+        required: true
+        default: 'develop'
+        type: string
+      label:
+        description: 'label to deploy'
+        required: true
+        default: 'TORDER'
+        type: choice
+        options:
+          - ALL
+          - TORDER
+          - UPLUS
+          - BRAND1
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.check_branch.outputs.branch_name }}
+    steps:
+      - name: check if branch exists
+        id: check_branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TOKEN }}
+          script: |
+            const branchName = '${{ github.event.inputs.branch }}';
+            console.log('branchName', branchName);
+            
+            const { data: branch } = await github.request('GET /repos/{owner}/{repo}/branches/{branch}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: branchName
+            });
+            
+            if (branch) {
+              core.setOutput('branch_name', branchName);
+            }
+
+      - name: check out branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ steps.check_branch.outputs.branch_name }}
+
+      - name: setup node version
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: cache node modules
+        id: node-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.OS }}-admin-build-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.OS }}-build-
+            ${{ runner.OS }}-
+
+      - name: install dependencies
+        run: yarn install
+
+      - name: zip workspace
+        run: zip -r workspace.zip .
+
+      - name: upload zipped workspace as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: workspace
+          path: workspace.zip
+
+  #----------------------------------------------------------- torder
+  build_torder:
+    runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ github.event.inputs.label == 'TORDER' || github.event.inputs.label == 'ALL' }}
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: workspace
+          path: ./
+
+      - name: extract workspace
+        run: unzip workspace.zip
+
+      - name: build TORDER
+        run: |
+          echo "building for TORDER"
+          yarn origin:build:dev
+
+      - name: zip build
+        run: zip -r build.zip .
+
+      - name: upload zipped workspace as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build.zip
+
+  deploy_torder:
+    runs-on: ubuntu-latest
+    needs: build_torder
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: ./
+
+      - name: extract build
+        run: unzip build.zip
+
+      - name: deploy TORDER
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET_NAME: ${{ secrets.AWS_DEV_BUCKET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          echo "deploying to TORDER"
+          yarn deploy:action
+
+  #----------------------------------------------------------- uplus
+  build_uplus:
+    runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ github.event.inputs.label == 'UPLUS' || github.event.inputs.label == 'ALL' }}
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: workspace
+          path: ./
+
+      - name: extract workspace
+        run: unzip workspace.zip
+
+      - name: build UPLUS
+        run: |
+          echo "building for UPLUS"
+          yarn uplus:build:dev
+
+      - name: zip build
+        run: zip -r build.zip .
+
+      - name: upload zipped workspace as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build.zip
+
+  deploy_uplus:
+    runs-on: ubuntu-latest
+    needs: build_uplus
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: ./
+
+      - name: extract build
+        run: unzip build.zip
+
+      - name: deploy UPLUS
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET_NAME: ${{ secrets.AWS_DEV_UPLUS_BUCKET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_DISTRIBUTION_ID: ${{ secrets.AWS_DEV_UPLUS_DISTRIBUTION_ID }}
+        run: |
+          echo "deploying to UPLUS"
+          yarn deploy:action
+
+  #----------------------------------------------------------- brand1
+  build_brand1:
+    runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ github.event.inputs.label == 'BRAND1' || github.event.inputs.label == 'ALL' }}
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: workspace
+          path: ./
+
+      - name: extract workspace
+        run: unzip workspace.zip
+
+      - name: build BRAND1
+        run: |
+          echo "building for BRAND1"
+          yarn brand1:build:dev
+
+      - name: zip build
+        run: zip -r build.zip .
+
+      - name: upload zipped workspace as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build.zip
+
+  deploy_brand1:
+    runs-on: ubuntu-latest
+    needs: build_brand1
+    steps:
+      - name: download necessary files artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: ./
+
+      - name: extract build
+        run: unzip build.zip
+
+      - name: deploy BRAND1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET_NAME: ${{ secrets.AWS_DEV_BRAND1_BUCKET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_DISTRIBUTION_ID: ${{ secrets.AWS_DEV_BRAND1_DISTRIBUTION_ID }}
+        run: |
+          echo "deploying to BRAND1"
+          yarn deploy:action
